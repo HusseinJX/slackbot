@@ -25,7 +25,11 @@ async function shipsaferFetch(path, options = {}) {
   const json = await res.json().catch(() => ({}));
 
   if (!res.ok || json.success === false) {
-    const msg = json.error || res.statusText;
+    const msg =
+      json.error ||
+      json.message ||
+      json.detail ||
+      res.statusText;
     throw new Error(`ShipSafer error (${res.status}): ${msg}`);
   }
 
@@ -34,10 +38,34 @@ async function shipsaferFetch(path, options = {}) {
 
 async function triggerShipSaferScan(input) {
   const body = JSON.stringify(input);
-  return shipsaferFetch('/api/v1/slack/scan', {
-    method: 'POST',
-    body,
-  });
+
+  try {
+    // Primary: POST body to Slack scan endpoint
+    return await shipsaferFetch('/api/v1/slack/scan', {
+      method: 'POST',
+      body,
+    });
+  } catch (error) {
+    // Some ShipSafer deployments expect GET with query params instead of POST.
+    // If we see a 405 Method Not Allowed, retry once as GET.
+    if (
+      typeof error.message === 'string' &&
+      (error.message.includes('405') ||
+        error.message.toLowerCase().includes('method not allowed'))
+    ) {
+      const params = new URLSearchParams();
+      if (input.domain) {
+        params.set('domain', input.domain);
+      }
+      if (Array.isArray(input.scanTypes) && input.scanTypes.length > 0) {
+        params.set('scanTypes', input.scanTypes.join(','));
+      }
+
+      return shipsaferFetch(`/api/v1/slack/scan?${params.toString()}`);
+    }
+
+    throw error;
+  }
 }
 
 async function getShipSaferStatus(domain) {
