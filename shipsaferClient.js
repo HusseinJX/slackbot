@@ -1,6 +1,8 @@
 const BASE_URL = process.env.SHIPSAFER_BASE_URL;
 const TOKEN = process.env.SHIPSAFER_SLACKBOT_TOKEN;
 const AUTH_COOKIE = process.env.SHIPSAFER_AUTH_COOKIE;
+const SCAN_PATH = '/api/v1/slack/scan';
+const STATUS_PATH = '/api/v1/slack/scan-status';
 
 async function shipsaferFetch(path, options = {}) {
   if (!BASE_URL || !TOKEN) {
@@ -17,7 +19,15 @@ async function shipsaferFetch(path, options = {}) {
     headers.Cookie = AUTH_COOKIE;
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const url = `${BASE_URL}${path}`;
+
+  // Helpful for debugging from Railway logs
+  console.log('ShipSafer request', {
+    url,
+    method: options.method || 'GET',
+  });
+
+  const res = await fetch(url, {
     ...options,
     headers,
   });
@@ -39,37 +49,17 @@ async function shipsaferFetch(path, options = {}) {
 async function triggerShipSaferScan(input) {
   const body = JSON.stringify(input);
 
-  try {
-    // Primary: POST body to Slack scan endpoint
-    return await shipsaferFetch('/api/v1/slack/scan', {
-      method: 'POST',
-      body,
-    });
-  } catch (error) {
-    // Some ShipSafer deployments expect GET with query params instead of POST.
-    // If we see a 405 Method Not Allowed, retry once as GET.
-    if (
-      typeof error.message === 'string' &&
-      (error.message.includes('405') ||
-        error.message.toLowerCase().includes('method not allowed'))
-    ) {
-      const params = new URLSearchParams();
-      if (input.domain) {
-        params.set('domain', input.domain);
-      }
-      if (Array.isArray(input.scanTypes) && input.scanTypes.length > 0) {
-        params.set('scanTypes', input.scanTypes.join(','));
-      }
-
-      return shipsaferFetch(`/api/v1/slack/scan?${params.toString()}`);
-    }
-
-    throw error;
-  }
+  // Per Shipsafer docs: POST /api/v1/slack/scan with JSON body
+  return shipsaferFetch(SCAN_PATH, {
+    method: 'POST',
+    body,
+  });
 }
 
 async function getShipSaferStatus(domain) {
-  const url = `/api/v1/slack/scan-status?domain=${encodeURIComponent(domain)}`;
+  const url = `${STATUS_PATH}?domain=${encodeURIComponent(
+    domain
+  )}`;
   return shipsaferFetch(url);
 }
 
